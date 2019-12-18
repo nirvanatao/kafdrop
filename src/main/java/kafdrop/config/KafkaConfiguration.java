@@ -1,60 +1,52 @@
 package kafdrop.config;
 
-import java.io.*;
-import java.util.*;
-import lombok.*;
-import org.apache.kafka.clients.*;
-import org.apache.kafka.common.config.*;
-import org.slf4j.*;
-import org.springframework.boot.context.properties.*;
-import org.springframework.stereotype.*;
+import lombok.Data;
+import org.apache.kafka.clients.CommonClientConfigs;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Component;
+
+import java.util.Properties;
 
 
 @Component
-@ConfigurationProperties(prefix = "kafka")
 @Data
 public final class KafkaConfiguration {
   private static final Logger LOG = LoggerFactory.getLogger(KafkaConfiguration.class);
 
-  private String brokerConnect;
-  private Boolean isSecured = false;
-  private String saslMechanism;
-  private String securityProtocol;
-  private String truststoreFile;
-  private String propertiesFile;
-  private String keystoreFile;
+  private String brokerList;
 
-  public void applyCommon(Properties properties) {
-    properties.setProperty(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, brokerConnect);
-    if (isSecured) {
-      LOG.warn("The 'isSecured' property is deprecated; consult README.md on the preferred way to configure security");
-      properties.put(CommonClientConfigs.SECURITY_PROTOCOL_CONFIG, securityProtocol);
-      properties.put(SaslConfigs.SASL_MECHANISM, saslMechanism);
+  public void applyCommon(Properties props) {
+    brokerList = System.getenv("KAFKA_BROKER_LIST");
+    props.setProperty(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, brokerList);
+
+    String val = System.getenv("SECURE_KAFKA");
+    if (!Boolean.parseBoolean(val)) {
+      return;
     }
 
-    LOG.info("Checking truststore file {}", truststoreFile);
-    if (new File(truststoreFile).isFile()) {
-      LOG.info("Assigning truststore location to {}", truststoreFile);
-      properties.put("ssl.truststore.location", truststoreFile);
-    }
+    String saslPassword = System.getenv("KAFKA_CLIENT_PASSWORD");
+    String saslUser = System.getenv("KAFKA_CLIENT_USER");
+    String keyStorePath = System.getenv("KAFKA_CLIENT_KEYSTORE_PATH");
+    String trustStorePath = System.getenv("KAFKA_CLIENT_TRUSTSTORE_PATH");
+    String keyStorePassword = System.getenv("KAFKA_CLIENT_KEYSTORE_PWD");
+    String trustStorePassword = System.getenv("KAFKA_CLIENT_TRUSTSTORE_PWD");
 
-    LOG.info("Checking keystore file {}", keystoreFile);
-    if (new File(keystoreFile).isFile()) {
-      LOG.info("Assigning keystore location to {}", keystoreFile);
-      properties.put("ssl.keystore.location", keystoreFile);
-    }
+    props.setProperty("security.protocol", "SASL_SSL");
 
-    LOG.info("Checking properties file {}", propertiesFile);
-    final var propertiesFile = new File(this.propertiesFile);
-    if (propertiesFile.isFile()) {
-      LOG.info("Loading properties from {}", this.propertiesFile);
-      final var propertyOverrides = new Properties();
-      try (var propsReader = new BufferedReader(new FileReader(propertiesFile))) {
-        propertyOverrides.load(propsReader);
-      } catch (IOException e) {
-        throw new KafkaConfigurationException(e);
-      }
-      properties.putAll(propertyOverrides);
-    }
+    props.setProperty("sasl.jaas.config", String.format("org.apache.kafka.common.security.scram.ScramLoginModule required username='%s' password='%s';", saslUser, saslPassword));
+    props.setProperty("sasl.mechanism", "PLAIN");
+    props.setProperty("sasl.kerberos.service.name", "kafka");
+
+    props.setProperty("ssl.protocol", "TLSv1.2");
+    props.setProperty("ssl.enabled.protocols", "TLSv1.2");
+
+    props.setProperty("ssl.keystore.location", keyStorePath);
+    props.setProperty("ssl.keystore.password", keyStorePassword);
+    props.setProperty("ssl.keystore.type", "PKCS12");
+
+    props.setProperty("ssl.truststore.location", trustStorePath);
+    props.setProperty("ssl.truststore.password", trustStorePassword);
+    props.setProperty("ssl.truststore.type", "PKCS12");
   }
 }
